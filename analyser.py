@@ -166,11 +166,15 @@ def execute_pipeline(file_path):
         translations = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)
 
         for i, translated_text in enumerate(translations):
+            # 1. Get the word count of the ORIGINAL Hindi input
+            original_hindi_word_count = len(raw_hindi_texts[i].split())
+            
+            # 2. Prune the NLLB English translation
             clean_text = re.sub(r'[^\w\s]', '', translated_text.lower())
             caveman_text = " ".join([w for w in clean_text.split() if w not in ENGLISH_STOPWORDS])
             
-            # Track the filler words destroyed from the translated English sentence
-            words_dropped_locally += (len(clean_text.split()) - len(caveman_text.split()))
+            words_dropped_locally += max(0, original_hindi_word_count - len(caveman_text.split()))
+            
             processed_results[hindi_indices[i]] = re.sub(r'[^\w\s]', '', caveman_text).strip()
             
     # 3. Process Hinglish (Qwen Batched Extraction)
