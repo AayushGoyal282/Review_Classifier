@@ -230,8 +230,8 @@ def execute_pipeline(file_path):
         
     # 6. Batched Cluster Insight Generation (Strictly Constrained)
     # This forces the model to start with a specific phrase and prevents hallucinations
-    insight_sys_prompt = "You are a strict data analyst. Write exactly one short sentence summarizing these customer keywords. You MUST start your sentence with one of these exact phrases: 'Feedback is mostly positive', 'Feedback is mostly negative', or 'Feedback is mixed'. Do not invent details."
-    cluster_payloads = []
+# 6. Batched Cluster Insight Generation 
+    insight_sys_prompt = "You are a strict data analyst. Write exactly one sentence summarizing these customer keywords. You MUST start your sentence with 'Feedback is mostly positive', 'Feedback is mostly negative', or 'Feedback is mixed', and then immediately explain WHY by listing the specific features mentioned. DO NOT invent details."    cluster_payloads = []
     
     for cid, data in clusters.items():
         sample_slice = random.sample(data["caveman"], min(6, len(data["caveman"])))
