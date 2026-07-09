@@ -228,9 +228,9 @@ def execute_pipeline(file_path):
     cluster_sizes = {i: len(clusters[i]["raw"]) for i in clusters.keys()}
     pie_chart = generate_cluster_chart(cluster_sizes)
         
-    # 6. Batched Cluster Insight Generation (Sentiment Aware)
-    # Optimized prompt to explicitly identify mixed sentiments
-    insight_sys_prompt = "Analyze these grouped customer keywords. Write a single concise sentence summarizing the main features mentioned, explicitly noting if the feedback is positive, negative, or mixed."
+    # 6. Batched Cluster Insight Generation (Strictly Constrained)
+    # This forces the model to start with a specific phrase and prevents hallucinations
+    insight_sys_prompt = "You are a strict data analyst. Write exactly one short sentence summarizing these customer keywords. You MUST start your sentence with one of these exact phrases: 'Feedback is mostly positive', 'Feedback is mostly negative', or 'Feedback is mixed'. Do not invent details."
     cluster_payloads = []
     
     for cid, data in clusters.items():
@@ -239,7 +239,9 @@ def execute_pipeline(file_path):
         cluster_payloads.append(keyword_payload)
         optimized_tokens_cost += len(tokenizer.tokenize(insight_sys_prompt + keyword_payload)) + 50
         
-    summary_insights = batch_ask_qwen_optimized(insight_sys_prompt, cluster_payloads, max_tokens=40)
+    # Bump tokens to 75 so the sentence never gets cut off
+    summary_insights = batch_ask_qwen_optimized(insight_sys_prompt, cluster_payloads, max_tokens=75)
+
     
     insight_markdown = f"*(Automatically detected **{best_k} distinct topics** based on data similarity)*\n\n"
     for cid, data in clusters.items():
