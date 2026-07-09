@@ -29,25 +29,6 @@ ENGLISH_STOPWORDS = {
     'can', 'will', 'just', 'don', 'should', "should've", 'now', 'd', 'll', 'm', 'o', 're', 've', 'y'
 }
 
-HINDI_STOPWORDS = {
-    'अंदर', 'अत', 'अपना', 'अपनी', 'अपने', 'अभी', 'आदि', 'आप', 'इत्यादि', 'इन', 'इनका', 
-    'इन्हीं', 'इन्हें', 'इन्हों', 'इस', 'इसका', 'इसकी', 'इसके', 'इसमें', 'इसी', 'इसे', 
-    'उन', 'उनका', 'उनकी', 'उनके', 'उनको', 'उन्हीं', 'उन्हें', 'उन्हों', 'उस', 'उसके', 
-    'उसी', 'उसे', 'एक', 'एवं', 'और', 'कई', 'कर', 'करता', 'करते', 'करना', 'करने', 'करें', 
-    'कहते', 'कहा', 'का', 'कि', 'कितना', 'किन्हें', 'किन्हों', 'किया', 'किर', 'किस', 'किसी', 
-    'किसे', 'की', 'कुछ', 'कुल', 'के', 'को', 'कोई', 'कौन', 'कौनसा', 'गया', 'जब', 'जहाँ', 
-    'जा', 'जितना', 'जिन', 'जिन्हें', 'जिन्हों', 'जिस', 'जिसे', 'जीधर', 'जैसा', 'जैसे', 'जो', 
-    'तक', 'तब', 'तरह', 'तिन', 'तिन्हें', 'तिन्हों', 'तिस', 'तिसे', 'तो', 'था', 'थी', 'थे', 
-    'दिया', 'दुसरा', 'दूसरे', 'दो', 'द्वारा', 'ने', 'पर', 'पहले', 'पूरा', 'पे', 'फिर', 'बनी', 
-    'बही', 'बाद', 'बाला', 'बिलकुल', 'भी', 'भीतर', 'मगर', 'मानो', 'मे', 'में', 'यदि', 'यह', 
-    'यहाँ', 'यही', 'या', 'यी', 'ये', 'रखें', 'रहा', 'रहे', 'लिए', 'लिये', 'लेकिन', 'व', 
-    'वग़ैरह', 'वर्ग', 'वह', 'वहाँ', 'वहीं', 'वाले', 'वुह', 'वे', 'संग', 'सकता', 'सकते', 
-    'सबसे', 'सभी', 'साथ', 'साबुत', 'सारा', 'से', 'सो', 'ही', 'हुआ', 'हुई', 'हुए', 'है', 
-    'हैं', 'हो', 'होता', 'होती', 'होते', 'होना', 'होने'
-}
-SORTED_HINDI_STOPWORDS = sorted(list(HINDI_STOPWORDS), key=len, reverse=True)
-HINDI_REGEX_PATTERN = re.compile(r'\b(?:' + '|'.join(SORTED_HINDI_STOPWORDS) + r')\b')
-
 HINGLISH_STOPWORDS = {
     'hai', 'hain', 'tha', 'thi', 'the', 'thhe', 'ho', 'hua', 'hui', 'hue', 'raha', 'rahi', 'rahe',
     'kar', 'karta', 'karte', 'karti', 'karo', 'kare', 'karna', 'liye', 'liya', 'diya', 'di', 'do',
@@ -169,28 +150,27 @@ def execute_pipeline(file_path):
         processed_results[idx] = re.sub(r'[^\w\s]', '', caveman_text).strip()
         
     # 2. Process Hindi (NLLB Translation + Stopword alignment)
-    if grouped_data['hindi']:
+    if grouped_data['hindi']:            
         hindi_indices = [item[0] for item in grouped_data['hindi']]
-        pruned_hindi_texts = []
+        raw_hindi_texts = []
         
         for idx, review in grouped_data['hindi']:
-            original_word_count = len(review.split())
-            pruned_text = HINDI_REGEX_PATTERN.sub('', review).strip()
-            words_dropped_locally += (original_word_count - len(pruned_text.split()))
-            pruned_hindi_texts.append(pruned_text if pruned_text else "empty")
+            raw_hindi_texts.append(review)
             
-        inputs = translation_tokenizer(pruned_hindi_texts, return_tensors="pt", padding=True, truncation=True)
+        inputs = translation_tokenizer(raw_hindi_texts, return_tensors="pt", padding=True, truncation=True)
         translated_tokens = translation_model.generate(
             **inputs, 
-            forced_bos_token_id=translation_tokenizer.lang_code_to_id["eng_Latn"],
+            forced_bos_token_id=translation_tokenizer.convert_tokens_to_ids("eng_Latn"),
             max_length=60
         )
         translations = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)
 
         for i, translated_text in enumerate(translations):
-            # Optimize: Run the translated English through the English stopword remover to match the format of other data
             clean_text = re.sub(r'[^\w\s]', '', translated_text.lower())
             caveman_text = " ".join([w for w in clean_text.split() if w not in ENGLISH_STOPWORDS])
+            
+            # Track the filler words destroyed from the translated English sentence
+            words_dropped_locally += (len(clean_text.split()) - len(caveman_text.split()))
             processed_results[hindi_indices[i]] = re.sub(r'[^\w\s]', '', caveman_text).strip()
             
     # 3. Process Hinglish (Qwen Batched Extraction)
