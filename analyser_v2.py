@@ -323,9 +323,15 @@ def execute_pipeline(file_path):
     return f"Processed {len(raw_reviews)} rows successfully.", pie_chart, insight_markdown, viability_markdown
 
 dark_minimalist = gr.themes.Soft(
+<<<<<<< HEAD
     text_size=gr.themes.sizes.text_lg,
     primary_hue="teal",       
     neutral_hue="zinc",       
+=======
+    text_size=gr.themes.sizes.text_lg
+    primary_hue="teal",       # A sophisticated, muted teal instead of purple
+    neutral_hue="zinc",       # Deep, matte grays for a premium dark mode look
+>>>>>>> e7d90379b1e5688885d892ae6d6af8533f34dafd
     font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "sans-serif"],
 ).set(
     # Force dark background and block colors
@@ -396,4 +402,9 @@ with gr.Blocks() as demo:
     )
 
 if __name__ == "__main__": 
+<<<<<<< HEAD
     demo.launch(title="Review Analyzer", theme=dark_minimalist)
+=======
+    # Launching with dark mode prioritized if the browser doesn't force it
+    demo.launch(title="Review Analyzer", theme=dark_minimalist)
+>>>>>>> e7d90379b1e5688885d892ae6d6af8533f34dafd
