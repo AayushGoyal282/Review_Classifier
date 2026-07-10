@@ -346,22 +346,21 @@ dark_minimalist = gr.themes.Soft(
     input_shadow="none",
     
     # Button styling
-    button_primary_background_fill="*primary_700",
-    button_primary_background_fill_hover="*primary_600",
+    button_primary_background_fill="#d97706",
+    button_primary_background_fill_hover="#b45309",
     button_primary_text_color="white",
-    button_shadow="none",
-    button_shadow_hover="none",
     
     # Subdued radii for a slightly sharper, more structured aesthetic
-    radius_lg="8px",
-    radius_md="6px",
-    radius_sm="4px",
+    block_radius="8px",
+    input_radius="6px",    
+    button_large_radius="8px",   
+    button_small_radius="6px",
 )
 
 # --- GRADIO UI (ALIGNED & STACKED) ---
 
 # 2. Apply the custom theme to your Blocks
-with gr.Blocks(title="Review Analyzer", theme=dark_minimalist) as demo: 
+with gr.Blocks() as demo: 
     gr.Markdown("# Multilingual Review Analyzer") 
     gr.Markdown("Upload a `.csv` file. The tool utilizes an end-to-end custom pipeline to analyse the csv while minimizing llm token usage.")
 
@@ -376,7 +375,7 @@ with gr.Blocks(title="Review Analyzer", theme=dark_minimalist) as demo:
     # UI FIX: Charts get their own full-width row so they aren't squished
     with gr.Row():
         with gr.Column(scale=1):
-            gr.Markdown("## 📊 Sentiment & Topic Distribution")
+            gr.Markdown("## Sentiment & Topic Distribution")
             visual_output = gr.Plot(label="Review Categorization")
             
     gr.Markdown("---")
@@ -403,4 +402,4 @@ with gr.Blocks(title="Review Analyzer", theme=dark_minimalist) as demo:
 
 if __name__ == "__main__": 
     # Launching with dark mode prioritized if the browser doesn't force it
-    demo.launch()
+    demo.launch(title="Review Analyzer", theme=dark_minimalist)
