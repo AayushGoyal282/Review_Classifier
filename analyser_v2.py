@@ -325,10 +325,45 @@ def execute_pipeline(file_path):
     gc.collect()
     return f"Processed {len(raw_reviews)} rows successfully.", pie_chart, insight_markdown, viability_markdown
 
+dark_minimalist = gr.themes.Soft(
+    primary_hue="teal",       # A sophisticated, muted teal instead of purple
+    neutral_hue="zinc",       # Deep, matte grays for a premium dark mode look
+    font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "sans-serif"],
+).set(
+    # Force dark background and block colors
+    body_background_fill="*neutral_950",
+    body_text_color="*neutral_100",
+    
+    # Flat, shadowless blocks with very subtle borders
+    block_background_fill="*neutral_900",
+    block_border_width="1px",
+    block_border_color="*neutral_800",
+    block_shadow="none",
+    
+    # Clean, flat inputs
+    input_background_fill="*neutral_800",
+    input_border_color="*neutral_700",
+    input_shadow="none",
+    
+    # Button styling
+    button_primary_background_fill="*primary_700",
+    button_primary_background_fill_hover="*primary_600",
+    button_primary_text_color="white",
+    button_shadow="none",
+    button_shadow_hover="none",
+    
+    # Subdued radii for a slightly sharper, more structured aesthetic
+    radius_lg="8px",
+    radius_md="6px",
+    radius_sm="4px",
+)
+
 # --- GRADIO UI (ALIGNED & STACKED) ---
-with gr.Blocks(title="Review Analyzer", theme=gr.themes.Soft()) as demo: 
-    gr.Markdown("# Universal Dynamic Review Analyzer") 
-    gr.Markdown("Upload a `.csv` file. The tool utilizes Caveman Input Pooling, Star-Rating Sentiment Inference, and dynamic clustering to generate Domain-Agnostic Action Items.")
+
+# 2. Apply the custom theme to your Blocks
+with gr.Blocks(title="Review Analyzer", theme=dark_minimalist) as demo: 
+    gr.Markdown("# Multilingual Review Analyzer") 
+    gr.Markdown("Upload a `.csv` file. The tool utilizes an end-to-end custom pipeline to analyse the csv while minimizing llm token usage.")
 
     with gr.Row():
         file_input = gr.File(label="Upload CSV File", file_types=['.csv'], scale=2)
@@ -349,7 +384,7 @@ with gr.Blocks(title="Review Analyzer", theme=gr.themes.Soft()) as demo:
     # UI FIX: Insights get their own full-width row below the charts
     with gr.Row():
         with gr.Column(scale=1):
-            gr.Markdown("## 🧠 Analysis Insights")
+            gr.Markdown("## Analysis Insights:")
             insights_display = gr.Markdown()
             
     gr.Markdown("---")
@@ -358,6 +393,7 @@ with gr.Blocks(title="Review Analyzer", theme=gr.themes.Soft()) as demo:
         with gr.Column(scale=1):
             savings_display = gr.Markdown(label="Metrics:")
 
+    # Note: Ensure 'execute_pipeline' is defined in your actual script
     process_btn.click(
         fn=execute_pipeline, 
         inputs=[file_input], 
@@ -366,4 +402,5 @@ with gr.Blocks(title="Review Analyzer", theme=gr.themes.Soft()) as demo:
     )
 
 if __name__ == "__main__": 
+    # Launching with dark mode prioritized if the browser doesn't force it
     demo.launch()
