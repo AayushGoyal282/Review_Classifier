@@ -53,7 +53,7 @@ sentiment_analyzer = SentimentIntensityAnalyzer()
 translation_tokenizer = AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M", src_lang="hin_Deva")
 translation_model = AutoModelForSeq2SeqLM.from_pretrained(
     "facebook/nllb-200-distilled-600M",
-    torch_dtype=torch.float16,
+    torch_dtype=torch.float32,
     low_cpu_mem_usage=True
 )
 
@@ -66,7 +66,7 @@ tokenizer.padding_side = 'left'
 
 slm_model = AutoModelForCausalLM.from_pretrained(
     qwen_id, 
-    torch_dtype=torch.float16, 
+    torch_dtype=torch.float32, 
     low_cpu_mem_usage=True
 )
 
@@ -207,7 +207,8 @@ def execute_pipeline(file_path):
             forced_bos_token_id=translation_tokenizer.convert_tokens_to_ids("eng_Latn"),
             max_length=60,
             num_beams=2,
-            repetition_penalty=1.2
+            repetition_penalty=1.2,
+            early_stopping=True
         )
         translations = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)
 
