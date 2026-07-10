@@ -12,12 +12,10 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sentence_transformers import SentenceTransformer
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModelForSeq2SeqLM
 
-# Pytorch will use fixed number of threads on CPU to avoid memory spikes on HF Free Tier
+# Pytorch will use fixed number of threads on CPU to avoid memory spikes
 torch.set_num_threads(2)
 
 # --- STOPWORDS DEFINITIONS ---
-
-# HARD ENGLISH STOPWORDS (Used ONLY for Embeddings to force topical clustering)
 ENGLISH_STOPWORDS = {
     'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", "you've", 
     'he', 'him', 'his', 'she', 'her', 'it', 'its', 'they', 'them', 'what', 'which', 'who', 
@@ -31,7 +29,6 @@ ENGLISH_STOPWORDS = {
     'can', 'will', 'just', 'don', 'should', 'now', 'not', 'never', 'no', 'didn', "didn't"
 }
 
-# SOFT HINGLISH STOPWORDS (Keeps negations like 'nahi' and amplifiers like 'bohot' to preserve sentiment)
 SOFT_HINGLISH_STOPWORDS = {
     'hai', 'hain', 'tha', 'thi', 'the', 'thhe', 'ho', 'hua', 'hui', 'hue', 'raha', 'rahi', 'rahe',
     'kar', 'karta', 'karte', 'karti', 'karo', 'kare', 'karna', 'liye', 'liya', 'diya', 'di', 'do',
@@ -49,7 +46,7 @@ SOFT_HINGLISH_STOPWORDS = {
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 sentiment_analyzer = SentimentIntensityAnalyzer()
 
-# NLLB Translation Model (Loaded in float16 to save RAM)
+# Loaded in float32 for fast CPU math
 translation_tokenizer = AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M", src_lang="hin_Deva")
 translation_model = AutoModelForSeq2SeqLM.from_pretrained(
     "facebook/nllb-200-distilled-600M",
@@ -57,7 +54,6 @@ translation_model = AutoModelForSeq2SeqLM.from_pretrained(
     low_cpu_mem_usage=True
 )
 
-# Qwen LLM (Loaded in float16 to save ~3GB RAM)
 qwen_id = "Qwen/Qwen2.5-1.5B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(qwen_id)
 if tokenizer.pad_token is None:
@@ -87,8 +83,9 @@ def batch_ask_qwen_optimized(system_prompt: str, user_texts: list, max_tokens: i
     
     outputs = slm_model.generate(
         **inputs, 
-        max_new_tokens=max_tokens, 
-        do_sample=False, # Greedy decoding for strict formatting
+        max_new_tokens=max_tokens,
+        temperature=0.1, 
+        do_sample=False, 
         pad_token_id=tokenizer.eos_token_id
     )
     
@@ -112,52 +109,36 @@ def get_top_keywords(caveman_list, top_k=12):
     return ", ".join([word for word, count in most_common])
 
 def dynamic_cluster(embeddings):
-    """Smart clustering that scales logarithmically from 10 to 1,000,000 rows."""
     num_samples = len(embeddings)
     if num_samples < 5:
         return [0] * num_samples
         
-    # 1. DYNAMIC DIMENSIONS (Base-10 Logarithmic approach)
     n_components = max(3, min(15, int(math.log10(num_samples) * 2)))
-        
-    # 2. DYNAMIC NEIGHBORS
     n_neighbors = min(15, max(3, num_samples - 1))
-    
-    # 3. DYNAMIC CLUSTER SIZE
     min_cluster_size = max(3, min(500, int(num_samples * 0.02)))
     
-    reducer = umap.UMAP(
-        n_neighbors=n_neighbors, 
-        n_components=n_components, 
-        metric='cosine', 
-        random_state=42
-    )
+    reducer = umap.UMAP(n_neighbors=n_neighbors, n_components=n_components, metric='cosine', random_state=42)
     reduced_embeddings = reducer.fit_transform(embeddings)
     
-    clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=min_cluster_size, 
-        metric='euclidean', 
-        cluster_selection_method='eom'
-    )
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric='euclidean', cluster_selection_method='eom')
     return clusterer.fit_predict(reduced_embeddings)
 
-def generate_dual_pie_chart(pos_sizes, neg_sizes):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+def generate_tri_pie_chart(pos_sizes, neu_sizes, neg_sizes):
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))
     colors = ['#FF9999', '#66B2FF', '#99FF99', '#FFCC99', '#c2c2f0', '#E5CCFF', '#D3D3D3']
     
-    if pos_sizes:
-        ax1.pie(pos_sizes.values(), labels=pos_sizes.keys(), autopct='%1.1f%%', startangle=90, colors=colors)
-        ax1.set_title("⭐ Strengths (Positive)")
-    else:
-        ax1.text(0.5, 0.5, 'No Positive Data', ha='center', va='center')
-        ax1.axis('off')
+    def plot_pie(ax, sizes, title):
+        if sizes:
+            ax.pie(sizes.values(), labels=sizes.keys(), autopct='%1.1f%%', startangle=90, colors=colors)
+            ax.set_title(title)
+        else:
+            ax.text(0.5, 0.5, 'No Data', ha='center', va='center')
+            ax.set_title(title)
+            ax.axis('off')
 
-    if neg_sizes:
-        ax2.pie(neg_sizes.values(), labels=neg_sizes.keys(), autopct='%1.1f%%', startangle=90, colors=colors)
-        ax2.set_title("🚨 Issues (Negative)")
-    else:
-        ax2.text(0.5, 0.5, 'No Negative Data', ha='center', va='center')
-        ax2.axis('off')
+    plot_pie(ax1, pos_sizes, "⭐ Strengths (Positive)")
+    plot_pie(ax2, neu_sizes, "📊 Operations (Neutral)")
+    plot_pie(ax3, neg_sizes, "🚨 Issues (Negative)")
 
     plt.tight_layout()
     return fig
@@ -191,12 +172,12 @@ def execute_pipeline(file_path):
         
     full_english_texts = {}
     
-    # 1. Process English (Keep punctuation for VADER)
+    # 1. Process English
     for idx, review in grouped_data['english']:
         clean_text = re.sub(r'[^\w\s!?.,]', '', review.lower()).strip()
         full_english_texts[idx] = clean_text
         
-    # 2. Process Hindi (NLLB with optimized parameters)
+    # 2. Process Hindi (Optimized for Speed)
     if grouped_data['hindi']:            
         hindi_indices = [item[0] for item in grouped_data['hindi']]
         raw_hindi_texts = [item[1] for item in grouped_data['hindi']]
@@ -208,69 +189,67 @@ def execute_pipeline(file_path):
             max_length=60,
             num_beams=2,
             repetition_penalty=1.2,
-            early_stopping=True
+            early_stopping=True # Speed optimization
         )
         translations = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)
 
         for i, translated_text in enumerate(translations):
             full_english_texts[hindi_indices[i]] = translated_text.strip()
             
-    # 3. Process Hinglish (Soft Caveman -> Qwen)
+    # 3. Process Hinglish (1-Shot Prompt to stop hallucinations)
     if grouped_data['hinglish']:
         hinglish_indices = [item[0] for item in grouped_data['hinglish']]
         soft_hinglish_texts = []
         
         sys_prompt = (
-            "Translate this compressed Hinglish text into compressed English. "
-            "Keep it short. DO NOT add filler words. Preserve negations (not, never) and punctuation (!, ?)." \
-            "examples: 'yeh product bohot acha hai!' -> 'product very good!'."
-            "'bohot bakwas khana deliver hua' -> 'very bad food delivered'." \
+            "You are a translator. Translate this Hinglish text to English. Output ONLY the English translation. "
+            "Example: 'khana bohot bekar tha' -> 'food was very bad'."
         )
         
         for idx, review in grouped_data['hinglish']:
-            # Soft Caveman: Keep punctuation and negations
             clean_hinglish = re.sub(r'[^\w\s!?.,]', '', review.lower())
             soft_hinglish = " ".join([w for w in clean_hinglish.split() if w not in SOFT_HINGLISH_STOPWORDS])
             soft_hinglish_texts.append(soft_hinglish if soft_hinglish else "empty")
             optimized_tokens_cost += len(tokenizer.tokenize(sys_prompt + soft_hinglish)) + 15
             
-        llm_responses = batch_ask_qwen_optimized(sys_prompt, soft_hinglish_texts, max_tokens=20)
+        llm_responses = batch_ask_qwen_optimized(sys_prompt, soft_hinglish_texts, max_tokens=15)
         for i, response in enumerate(llm_responses):
             full_english_texts[hinglish_indices[i]] = response.strip()
             
-    # 4. VADER Sentiment Split & Hard Caveman
+    # 4. 3-Way VADER Sentiment Split
     positives = {"raw": [], "caveman": [], "emb": []}
+    neutrals = {"raw": [], "caveman": [], "emb": []}
     negatives = {"raw": [], "caveman": [], "emb": []}
     
     for i in range(len(raw_reviews)):
         full_text = full_english_texts[i]
         
-        # Hard Caveman for Embeddings (Strips punctuation and ALL stopwords)
         no_punct = re.sub(r'[^\w\s]', '', full_text.lower())
         caveman_text = " ".join([w for w in no_punct.split() if w not in ENGLISH_STOPWORDS])
         
-        # VADER Score
         score = sentiment_analyzer.polarity_scores(full_text)['compound']
         
-        if score < -0.05:
+        # Standard VADER Thresholds
+        if score <= -0.05:
             negatives["raw"].append(raw_reviews[i])
             negatives["caveman"].append(caveman_text)
-        else:
+        elif score >= 0.05:
             positives["raw"].append(raw_reviews[i])
             positives["caveman"].append(caveman_text)
+        else:
+            neutrals["raw"].append(raw_reviews[i])
+            neutrals["caveman"].append(caveman_text)
 
     # 5. Embeddings & Dynamic Clustering
-    if negatives["caveman"]:
-        negatives["emb"] = embedder.encode(negatives["caveman"], batch_size=32)
-        neg_labels = dynamic_cluster(negatives["emb"])
-    else:
-        neg_labels = []
+    def process_bucket(bucket):
+        if bucket["caveman"]:
+            bucket["emb"] = embedder.encode(bucket["caveman"], batch_size=32)
+            return dynamic_cluster(bucket["emb"])
+        return []
 
-    if positives["caveman"]:
-        positives["emb"] = embedder.encode(positives["caveman"], batch_size=32)
-        pos_labels = dynamic_cluster(positives["emb"])
-    else:
-        pos_labels = []
+    neg_labels = process_bucket(negatives)
+    neu_labels = process_bucket(neutrals)
+    pos_labels = process_bucket(positives)
 
     # 6. Group Clusters
     def group_clusters(labels, data_dict):
@@ -283,12 +262,14 @@ def execute_pipeline(file_path):
         return clusters
 
     neg_clusters = group_clusters(neg_labels, negatives)
+    neu_clusters = group_clusters(neu_labels, neutrals)
     pos_clusters = group_clusters(pos_labels, positives)
 
     # Generate Pie Charts
     neg_sizes = {(f"Issue {k+1}" if k != -1 else "Misc"): len(v["raw"]) for k, v in neg_clusters.items()}
+    neu_sizes = {(f"Topic {k+1}" if k != -1 else "Misc"): len(v["raw"]) for k, v in neu_clusters.items()}
     pos_sizes = {(f"Strength {k+1}" if k != -1 else "Misc"): len(v["raw"]) for k, v in pos_clusters.items()}
-    pie_chart = generate_dual_pie_chart(pos_sizes, neg_sizes)
+    pie_chart = generate_tri_pie_chart(pos_sizes, neu_sizes, neg_sizes)
         
     # 7. Generate Action-Oriented Insights
     insight_markdown = ""
@@ -297,39 +278,43 @@ def execute_pipeline(file_path):
     if neg_clusters:
         insight_markdown += "### 🚨 Critical Issues (Requires Attention)\n\n"
         neg_sys_prompt = (
-            "You are a strict business consultant. Look at these extracted customer complaint keywords. "
+            "You are a strict business consultant. Look at these extracted customer complaint keywords. Do not invent details. "
             "Output exactly two lines:\n1. Issue: [1-sentence summary of the problem]\n2. Action: [1 short recommendation to fix it]"
         )
-        
         for cid, data in neg_clusters.items():
-            if cid == -1: continue # Skip noise
-            
+            if cid == -1: continue 
             top_keywords = get_top_keywords(data["caveman"], top_k=12)
             optimized_tokens_cost += len(tokenizer.tokenize(neg_sys_prompt + top_keywords)) + 40
-            
-            summary = batch_ask_qwen_optimized(neg_sys_prompt, [top_keywords], max_tokens=60)[0]
-            insight_markdown += f"**Issue Cluster {cid + 1} ({len(data['raw'])} reviews)**\n"
-            insight_markdown += f"{summary}\n"
-            insight_markdown += f"*(Keywords: {top_keywords})*\n\n---\n\n"
+            summary = batch_ask_qwen_optimized(neg_sys_prompt, [top_keywords], max_tokens=80)[0]
+            insight_markdown += f"**Issue Cluster {cid + 1} ({len(data['raw'])} reviews)**\n{summary}\n*(Keywords: {top_keywords})*\n\n---\n\n"
+
+    # --- NEUTRAL INSIGHTS ---
+    if neu_clusters:
+        insight_markdown += "### 📊 Operational Observations (Factual / Mixed Feedback)\n\n"
+        neu_sys_prompt = (
+            "You are an operations analyst. Look at these factual or mixed customer keywords. Do not invent details. "
+            "Output exactly two lines:\n1. Observation: [1-sentence summary of the feedback]\n2. Suggestion: [1 short operational tweak]"
+        )
+        for cid, data in neu_clusters.items():
+            if cid == -1: continue 
+            top_keywords = get_top_keywords(data["caveman"], top_k=12)
+            optimized_tokens_cost += len(tokenizer.tokenize(neu_sys_prompt + top_keywords)) + 40
+            summary = batch_ask_qwen_optimized(neu_sys_prompt, [top_keywords], max_tokens=80)[0]
+            insight_markdown += f"**Observation Cluster {cid + 1} ({len(data['raw'])} reviews)**\n{summary}\n*(Keywords: {top_keywords})*\n\n---\n\n"
 
     # --- POSITIVE INSIGHTS ---
     if pos_clusters:
         insight_markdown += "### ⭐ Core Strengths (What to keep doing)\n\n"
         pos_sys_prompt = (
-            "You are a marketing analyst. Look at these positive customer keywords. "
+            "You are a marketing analyst. Look at these positive customer keywords. Do not invent details. "
             "Output exactly two lines:\n1. Strength: [1-sentence summary of what customers loved]\n2. Highlight: [How to use this in advertising]"
         )
-        
         for cid, data in pos_clusters.items():
-            if cid == -1: continue # Skip noise
-            
+            if cid == -1: continue 
             top_keywords = get_top_keywords(data["caveman"], top_k=12)
             optimized_tokens_cost += len(tokenizer.tokenize(pos_sys_prompt + top_keywords)) + 40
-            
-            summary = batch_ask_qwen_optimized(pos_sys_prompt, [top_keywords], max_tokens=60)[0]
-            insight_markdown += f"**Strength Cluster {cid + 1} ({len(data['raw'])} reviews)**\n"
-            insight_markdown += f"{summary}\n"
-            insight_markdown += f"*(Keywords: {top_keywords})*\n\n---\n\n"
+            summary = batch_ask_qwen_optimized(pos_sys_prompt, [top_keywords], max_tokens=80)[0]
+            insight_markdown += f"**Strength Cluster {cid + 1} ({len(data['raw'])} reviews)**\n{summary}\n*(Keywords: {top_keywords})*\n\n---\n\n"
 
     token_savings_percentage = max(0, 100 - ((optimized_tokens_cost / baseline_tokens_cost) * 100)) if baseline_tokens_cost > 0 else 0
     
@@ -347,7 +332,7 @@ def execute_pipeline(file_path):
     return f"Processed {len(raw_reviews)} rows successfully.", pie_chart, insight_markdown, viability_markdown
 
 # --- GRADIO UI ---
-with gr.Blocks(title="Review Analyzer for businesses") as demo:
+with gr.Blocks(title="Review Analyzer") as demo:
     gr.Markdown("# Multilingual Review Analysis Tool")
     gr.Markdown("Upload a `.csv` file. The tool translates Hindi/Hinglish, splits data by sentiment using VADER, dynamically clusters topics, and generates **Action Items** and **Marketing Highlights**. *(Max 120 rows for demo)*")
     
@@ -365,7 +350,7 @@ with gr.Blocks(title="Review Analyzer for businesses") as demo:
             visual_output = gr.Plot(label="Review Categorization")
             
         with gr.Column(scale=1):
-            gr.Markdown("## Automated Business Strategy:")
+            gr.Markdown("## AnalysisInsights:")
             insights_display = gr.Markdown()
             
     gr.Markdown("---")
