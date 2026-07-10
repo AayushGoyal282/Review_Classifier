@@ -5,12 +5,12 @@ import random
 import torch
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+import umap
+import hdbscan
 from sentence_transformers import SentenceTransformer
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModelForSeq2SeqLM
 
-# Pytorch will use fixed number of threads on CPU to avoid memory spikes
+# Pytorch will use fixed number of threads on CPU to avoid memory spikes on HF Free Tier
 torch.set_num_threads(2)
 
 # --- STOPWORDS DEFINITIONS ---
@@ -102,10 +102,11 @@ def router(text: str) -> str:
 
 def generate_cluster_chart(cluster_sizes):
     fig, ax = plt.subplots(figsize=(6, 4))
-    labels = [f"Topic {k+1}" for k in cluster_sizes.keys()]
+    labels = list(cluster_sizes.keys())
     sizes = list(cluster_sizes.values())
     
-    colors = ['#FF9999', '#66B2FF', '#99FF99', '#FFCC99', '#c2c2f0', '#E5CCFF']
+    # Added a grey color at the end specifically for the "Noise" cluster
+    colors = ['#FF9999', '#66B2FF', '#99FF99', '#FFCC99', '#c2c2f0', '#E5CCFF', '#D3D3D3']
     
     ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=colors[:len(sizes)],
            wedgeprops={'edgecolor': 'white', 'linewidth': 1.5})
@@ -125,8 +126,9 @@ def execute_pipeline(file_path):
             return "CSV is empty or unreadable.", None, "Error", "Error"
             
         raw_reviews = df.iloc[:, 0].dropna().astype(str).tolist()
-        if len(raw_reviews) > 50:
-            raw_reviews = raw_reviews[:50]
+        # Bumped to 125 so HDBSCAN has enough density to find clusters
+        if len(raw_reviews) > 125:
+            raw_reviews = raw_reviews[:125]
             
     except Exception as e:
         return f"Error reading CSV: {str(e)}", None, "Error", "Error"
@@ -166,22 +168,17 @@ def execute_pipeline(file_path):
         translations = translation_tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)
 
         for i, translated_text in enumerate(translations):
-            # 1. Get the word count of the ORIGINAL Hindi input
             original_hindi_word_count = len(raw_hindi_texts[i].split())
-            
-            # 2. Prune the NLLB English translation
             clean_text = re.sub(r'[^\w\s]', '', translated_text.lower())
             caveman_text = " ".join([w for w in clean_text.split() if w not in ENGLISH_STOPWORDS])
             
             words_dropped_locally += max(0, original_hindi_word_count - len(caveman_text.split()))
-            
             processed_results[hindi_indices[i]] = re.sub(r'[^\w\s]', '', caveman_text).strip()
             
     # 3. Process Hinglish (Qwen Batched Extraction)
     if grouped_data['hinglish']:
         hinglish_indices = [item[0] for item in grouped_data['hinglish']]
         clean_hinglish_texts = []
-        # Optimized prompt to prevent sentences
         sys_prompt = "You are a keyword extractor. Read this text and output exactly 2-3 short English keywords describing the core topic (e.g., 'fast delivery', 'bad battery'). Output ONLY the keywords. Do not write sentences."
         
         for idx, review in grouped_data['hinglish']:
@@ -199,58 +196,73 @@ def execute_pipeline(file_path):
     processed_texts = [processed_results[i] for i in range(len(raw_reviews))]
     embeddings = embedder.encode(processed_texts, batch_size=32)
     
-    # 5. AUTOMATIC K-MEANS CLUSTERING (Silhouette Score)
+    # 5. UMAP + HDBSCAN CLUSTERING
     num_samples = len(raw_reviews)
-    if num_samples < 3:
-        best_k = 1
+    
+    if num_samples < 10:
+        # Fallback for extremely small datasets where UMAP/HDBSCAN will fail
         labels = [0] * num_samples
     else:
-        best_k = 2
-        best_score = -1
-        max_k = min(6, num_samples - 1)
+        # Step 5a: Reduce dimensionality with UMAP
+        n_neighbors = min(15, num_samples - 1)
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors, 
+            n_components=5, 
+            metric='cosine', 
+            random_state=42
+        )
+        reduced_embeddings = reducer.fit_transform(embeddings)
         
-        for k in range(2, max_k + 1):
-            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-            lbls = kmeans.fit_predict(embeddings)
-            score = silhouette_score(embeddings, lbls)
-            if score > best_score:
-                best_score = score
-                best_k = k
-                
-        kmeans = KMeans(n_clusters=best_k, random_state=42, n_init=10)
-        labels = kmeans.fit_predict(embeddings)
+        # Step 5b: Cluster with HDBSCAN
+        min_cluster_size = max(3, min(5, num_samples // 10)) 
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=min_cluster_size, 
+            metric='euclidean', 
+            cluster_selection_method='eom'
+        )
+        labels = clusterer.fit_predict(reduced_embeddings)
 
-    clusters = {i: {"raw": [], "caveman": []} for i in range(best_k)}
+    # Group data by HDBSCAN labels
+    clusters = {}
     for raw, caveman, label in zip(raw_reviews, processed_texts, labels):
+        if label not in clusters:
+            clusters[label] = {"raw": [], "caveman": []}
         clusters[label]["raw"].append(raw)
         clusters[label]["caveman"].append(caveman)
         
-    cluster_sizes = {i: len(clusters[i]["raw"]) for i in clusters.keys()}
+    # Calculate sizes for the pie chart (-1 is mapped to "Uncategorized Noise")
+    cluster_sizes = {
+        (f"Topic {k+1}" if k != -1 else "Uncategorized Noise"): len(clusters[k]["raw"]) 
+        for k in clusters.keys()
+    }
     pie_chart = generate_cluster_chart(cluster_sizes)
         
-    # 6. Batched Cluster Insight Generation (Strictly Constrained)
-    # This forces the model to start with a specific phrase and prevents hallucinations
-    insight_sys_prompt = "You are a strict data analyst. Write exactly one short sentence summarizing these customer keywords. You MUST start your sentence with one of these exact phrases: 'Feedback is mostly positive', 'Feedback is mostly negative', or 'Feedback is mixed'. Do not invent details."
-    cluster_payloads = []
+    # 6. Batched Cluster Insight Generation
+    insight_sys_prompt = "You are a strict data analyst. Write exactly one short sentence summarizing these customer keywords. You MUST start your sentence with one of these exact phrases: 'Feedback is mostly positive', 'Feedback is mostly negative', or 'Feedback is mixed'. DO NOT invent details."
+    
+    valid_topics_count = len([k for k in clusters.keys() if k != -1])
+    insight_markdown = f"*(Automatically detected **{valid_topics_count} distinct topics** based on data density)*\n\n"
     
     for cid, data in clusters.items():
-        sample_slice = random.sample(data["caveman"], min(6, len(data["caveman"])))
+        if cid == -1:
+            # Skip LLM generation for noise to save CPU time and tokens!
+            insight_markdown += f"###Uncategorized / Noise ({len(data['raw'])} items)\n"
+            insight_markdown += "**Summary:** Random outliers and miscellaneous feedback that did not form a dense topic.\n\n"
+            sample_slice = random.sample(data["caveman"], min(5, len(data["caveman"])))
+            insight_markdown += f"**Sample Phrases:** `{', '.join(sample_slice)}`\n\n---\n\n"
+            continue
+            
+        # Process actual clusters through the LLM
+        sample_slice = random.sample(data["caveman"], min(10, len(data["caveman"])))
         keyword_payload = ", ".join(sample_slice)
-        cluster_payloads.append(keyword_payload)
         optimized_tokens_cost += len(tokenizer.tokenize(insight_sys_prompt + keyword_payload)) + 50
         
-    # Bump tokens to 75 so the sentence never gets cut off
-    summary_insights = batch_ask_qwen_optimized(insight_sys_prompt, cluster_payloads, max_tokens=75)
-
-    
-    insight_markdown = f"*(Automatically detected **{best_k} distinct topics** based on data similarity)*\n\n"
-    for cid, data in clusters.items():
-        summary_insight = summary_insights[cid]
-        insight_markdown += f"### Topic {cid + 1} ({len(data['raw'])} items)\n"
-        insight_markdown += f"**Summary:** {summary_insight}\n\n"
+        # Ask Qwen for this specific cluster
+        summary_insight = batch_ask_qwen_optimized(insight_sys_prompt, [keyword_payload], max_tokens=75)[0]
         
-        sample_slice = random.sample(data["caveman"], min(5, len(data["caveman"])))
-        insight_markdown += f"**Core Analyzed Phrases:** `{', '.join(sample_slice)}`\n"
+        insight_markdown += f"###Topic {cid + 1} ({len(data['raw'])} items)\n"
+        insight_markdown += f"**Summary:** {summary_insight}\n\n"
+        insight_markdown += f"**Core Analyzed Phrases:** `{', '.join(sample_slice[:5])}`\n"
         insight_markdown += "\n---\n\n"
 
     token_savings_percentage = max(0, 100 - ((optimized_tokens_cost / baseline_tokens_cost) * 100)) if baseline_tokens_cost > 0 else 0
@@ -267,12 +279,12 @@ def execute_pipeline(file_path):
     """
 
     gc.collect()
-    return f"Processed {len(raw_reviews)} rows into {best_k} clusters automatically.", pie_chart, insight_markdown, viability_markdown
+    return f"Processed {len(raw_reviews)} rows into {valid_topics_count} clusters automatically.", pie_chart, insight_markdown, viability_markdown
 
 # --- GRADIO UI ---
 with gr.Blocks(title="Review Classifier") as demo:
-    gr.Markdown("# Multilingual Feedback Intelligence Tool")
-    gr.Markdown("Upload a `.csv` file. The tool will automatically detect the language, route it through an embedded translation/AI pipeline, **determine the ideal number of feedback topics**, and output operational insights. *(Max 50 rows due to cloud limits)*")
+    gr.Markdown("# Multilingual Review Analysis Tool")
+    gr.Markdown("Upload a `.csv` file. The tool will automatically detect the language, route it through an embedded translation/AI pipeline, **determine the ideal number of feedback topics using UMAP/HDBSCAN**, and output operational insights. *(Max 125 rows due to cloud limits)*")
     
     with gr.Row():
         with gr.Column(scale=1):
@@ -305,4 +317,4 @@ with gr.Blocks(title="Review Classifier") as demo:
     )
 
 if __name__ == "__main__":
-    demo.launch( theme=gr.themes.Soft())
+    demo.launch(theme=gr.themes.Soft())
