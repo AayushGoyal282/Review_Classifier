@@ -126,9 +126,9 @@ def execute_pipeline(file_path):
             return "CSV is empty or unreadable.", None, "Error", "Error"
             
         raw_reviews = df.iloc[:, 0].dropna().astype(str).tolist()
-        # Bumped to 125 so HDBSCAN has enough density to find clusters
-        if len(raw_reviews) > 125:
-            raw_reviews = raw_reviews[:125]
+        # Bumped to 100 so HDBSCAN has enough density to find clusters
+        if len(raw_reviews) > 100:
+            raw_reviews = raw_reviews[:100]
             
     except Exception as e:
         return f"Error reading CSV: {str(e)}", None, "Error", "Error"
@@ -237,23 +237,16 @@ def execute_pipeline(file_path):
     }
     pie_chart = generate_cluster_chart(cluster_sizes)
         
-<<<<<<< HEAD
     # 6. Batched Cluster Insight Generation
-    insight_sys_prompt = "You are a strict data analyst. Write exactly one short sentence summarizing these customer keywords. You MUST start your sentence with one of these exact phrases: 'Feedback is mostly positive', 'Feedback is mostly negative', or 'Feedback is mixed'. DO NOT invent details."
+    insight_sys_prompt = "You are a strict data analyst. Write exactly one short sentence summarizing these customer keywords. You MUST start your sentence with one of these exact phrases: 'Feedback is mostly positive', 'Feedback is mostly negative', or 'Feedback is mixed'. Do not invent details."
     
     valid_topics_count = len([k for k in clusters.keys() if k != -1])
     insight_markdown = f"*(Automatically detected **{valid_topics_count} distinct topics** based on data density)*\n\n"
-=======
-    # 6. Batched Cluster Insight Generation (Strictly Constrained)
-    # This forces the model to start with a specific phrase and prevents hallucinations
-# 6. Batched Cluster Insight Generation 
-    insight_sys_prompt = "You are a strict data analyst. Write exactly one sentence summarizing these customer keywords. You MUST start your sentence with 'Feedback is mostly positive', 'Feedback is mostly negative', or 'Feedback is mixed', and then immediately explain WHY by listing the specific features mentioned. DO NOT invent details."    cluster_payloads = []
->>>>>>> 5596f7cfc90bc5f4c0224f5fc522d09641188575
     
     for cid, data in clusters.items():
         if cid == -1:
             # Skip LLM generation for noise to save CPU time and tokens!
-            insight_markdown += f"###Uncategorized / Noise ({len(data['raw'])} items)\n"
+            insight_markdown += f"### Uncategorized / Noise ({len(data['raw'])} items)\n"
             insight_markdown += "**Summary:** Random outliers and miscellaneous feedback that did not form a dense topic.\n\n"
             sample_slice = random.sample(data["caveman"], min(5, len(data["caveman"])))
             insight_markdown += f"**Sample Phrases:** `{', '.join(sample_slice)}`\n\n---\n\n"
@@ -267,7 +260,7 @@ def execute_pipeline(file_path):
         # Ask Qwen for this specific cluster
         summary_insight = batch_ask_qwen_optimized(insight_sys_prompt, [keyword_payload], max_tokens=75)[0]
         
-        insight_markdown += f"###Topic {cid + 1} ({len(data['raw'])} items)\n"
+        insight_markdown += f"### Topic {cid + 1} ({len(data['raw'])} items)\n"
         insight_markdown += f"**Summary:** {summary_insight}\n\n"
         insight_markdown += f"**Core Analyzed Phrases:** `{', '.join(sample_slice[:5])}`\n"
         insight_markdown += "\n---\n\n"
@@ -290,8 +283,8 @@ def execute_pipeline(file_path):
 
 # --- GRADIO UI ---
 with gr.Blocks(title="Review Classifier") as demo:
-    gr.Markdown("# Multilingual Review Analysis Tool")
-    gr.Markdown("Upload a `.csv` file. The tool will automatically detect the language, route it through an embedded translation/AI pipeline, **determine the ideal number of feedback topics using UMAP/HDBSCAN**, and output operational insights. *(Max 125 rows due to cloud limits)*")
+    gr.Markdown("# Multilingual Feedback Intelligence Tool")
+    gr.Markdown("Upload a `.csv` file. The tool will automatically detect the language, route it through an embedded translation/AI pipeline, **determine the ideal number of feedback topics using UMAP/HDBSCAN**, and output operational insights. *(Max 100 rows due to cloud limits)*")
     
     with gr.Row():
         with gr.Column(scale=1):
