@@ -126,9 +126,9 @@ def execute_pipeline(file_path):
             return "CSV is empty or unreadable.", None, "Error", "Error"
             
         raw_reviews = df.iloc[:, 0].dropna().astype(str).tolist()
-        # Bumped to 100 so HDBSCAN has enough density to find clusters
-        if len(raw_reviews) > 100:
-            raw_reviews = raw_reviews[:100]
+        # Bumped to 120 so HDBSCAN has enough density to find clusters
+        if len(raw_reviews) > 120:
+            raw_reviews = raw_reviews[:120]
             
     except Exception as e:
         return f"Error reading CSV: {str(e)}", None, "Error", "Error"
@@ -283,13 +283,13 @@ def execute_pipeline(file_path):
 
 # --- GRADIO UI ---
 with gr.Blocks(title="Review Classifier") as demo:
-    gr.Markdown("# Multilingual Feedback Intelligence Tool")
-    gr.Markdown("Upload a `.csv` file. The tool will automatically detect the language, route it through an embedded translation/AI pipeline, **determine the ideal number of feedback topics using UMAP/HDBSCAN**, and output operational insights. *(Max 100 rows due to cloud limits)*")
+    gr.Markdown("# Multilingual Review Analysis Tool")
+    gr.Markdown("Upload a `.csv` file. The tool will automatically detect the language, route it through an embedded translation/AI pipeline, **determine the ideal number of feedback topics using UMAP/HDBSCAN**, and output operational insights. *(Max 120 rows due to cloud limits)*")
     
     with gr.Row():
         with gr.Column(scale=1):
             file_input = gr.File(label="Upload CSV File (First column will be processed)", file_types=['.csv'])
-            process_btn = gr.Button("Execute Analysis", variant="primary")
+            process_btn = gr.Button("Start Analysis", variant="primary")
             status_text = gr.Textbox(label="System Status", interactive=False)
             
     gr.Markdown("---")
@@ -297,17 +297,17 @@ with gr.Blocks(title="Review Classifier") as demo:
     with gr.Row():
         with gr.Column(scale=1):
             gr.Markdown("## Topic Distribution")
-            visual_output = gr.Plot(label="Feedback Categorization")
+            visual_output = gr.Plot(label="Review Categorization")
             
         with gr.Column(scale=1):
-            gr.Markdown("## Automated Analysis")
+            gr.Markdown("## Analysis:")
             insights_display = gr.Markdown()
             
     gr.Markdown("---")
     
     with gr.Row():
         with gr.Column(scale=1):
-            savings_display = gr.Markdown(label="System Metrics")
+            savings_display = gr.Markdown(label="Metrics:")
 
     process_btn.click(
         fn=execute_pipeline, 
