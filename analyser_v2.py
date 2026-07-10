@@ -43,11 +43,11 @@ SOFT_HINGLISH_STOPWORDS = {
 # --- MODEL LOADING ---
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
-# 1. Transformer Sentiment Model (Restored to original RoBERTa)
+# 1. Review-Based Sentiment Model (1-5 Stars) - Naturally catches implicit defects like "hair"
 sentiment_analyzer = pipeline(
     "sentiment-analysis", 
-    model="cardiffnlp/twitter-roberta-base-sentiment-latest", 
-    tokenizer="cardiffnlp/twitter-roberta-base-sentiment-latest",
+    model="nlptown/bert-base-multilingual-uncased-sentiment", 
+    tokenizer="nlptown/bert-base-multilingual-uncased-sentiment",
     truncation=True, 
     max_length=128
 )
@@ -68,7 +68,9 @@ if tokenizer.pad_token is None:
 tokenizer.padding_side = 'left'
 
 slm_model = AutoModelForCausalLM.from_pretrained(
-    qwen_id, torch_dtype=torch.float32, low_cpu_mem_usage=True
+    qwen_id, 
+    torch_dtype=torch.float32, 
+    low_cpu_mem_usage=True
 )
 
 @torch.inference_mode()
@@ -175,24 +177,23 @@ def execute_pipeline(file_path):
         for i, translated_text in enumerate(translations):
             full_english_texts[hindi_indices[i]] = translated_text.strip().lower()
             
-    # 3. Process Hinglish (Strictly Caveman Pooling)
+    # 3. Process Hinglish (Strictly Caveman Pooling with Anti-Echo Prompt)
     if grouped_data['hinglish']:
         hinglish_indices = [item[0] for item in grouped_data['hinglish']]
         caveman_texts = []
         
-        # Strip Hinglish stopwords BEFORE hitting LLM
         for idx, review in grouped_data['hinglish']:
             clean_hinglish = re.sub(r'[^\w\s]', '', review.lower())
             words = [w for w in clean_hinglish.split() if w not in SOFT_HINGLISH_STOPWORDS]
             caveman_texts.append(" ".join(words) if words else "empty")
             
-        # Robust Caveman Prompt (No hardcoding, forces slang inference)
+        # Upgraded Prompt: Forces translation of unknown slang, prevents echoing
         sys_prompt = (
             "You are an expert multilingual AI. Translate this numbered list of broken Hinglish (Hindi-English) keywords into English keywords. "
-            "These are raw keywords without grammar. Use your knowledge of Indian internet slang to infer meaning across any domain. "
+            "CRITICAL: If a word is Hindi/Hinglish slang (e.g., 'bassi', 'kida', 'lajawab', 'badtameezi'), you MUST translate its meaning to English. Do not echo the original word. "
             "Keep the exact same numbering. Output ONLY the English translations.\n"
-            "Example Input:\n1. khana mehenga bassi\n2. kida baal bc\n3. app crash ganda\n4. delivery guy badtameezi\n5. product quality kharab\n6. service slow\n7. refund process lamba\n8. app UI confusing\n9. payment gateway fail\n10. customer support rude\n"
-            "Example Output:\n1. food expensive stale\n2. bug hair bad\n3. app crash bad\n4. delivery guy rude\n5. product quality poor\n6. service slow\n7. refund process long\n8. app UI confusing\n9. payment gateway fail\n10. customer support rude"
+            "Example Input:\n1. khana mehenga bassi\n2. kida baal bc\n3. app crash ganda\n"
+            "Example Output:\n1. food expensive stale\n2. bug hair bad\n3. app crash bad"
         )
         
         CHUNK_SIZE = 20
@@ -213,7 +214,7 @@ def execute_pipeline(file_path):
                 else:
                     full_english_texts[original_idx] = chunk_texts[j].lower()
             
-    # 4. Sentiment Split (No Triggers, pure model inference)
+    # 4. Sentiment Split (Pure AI Star-Rating Inference)
     positives = {"raw": [], "caveman": [], "emb": []}
     neutrals = {"raw": [], "caveman": [], "emb": []}
     negatives = {"raw": [], "caveman": [], "emb": []}
@@ -222,16 +223,20 @@ def execute_pipeline(file_path):
     sentiment_results = sentiment_analyzer(texts_to_analyze, batch_size=8)
 
     for i, (full_text, sentiment) in enumerate(zip(texts_to_analyze, sentiment_results)):
-        label = sentiment['label'].lower() 
+        # Model outputs '1 star', '2 stars', etc.
+        star_rating = int(sentiment['label'].split()[0])
         
         no_punct = re.sub(r'[^\w\s]', '', full_text.lower())
         caveman_words = [w for w in no_punct.split() if w not in ENGLISH_STOPWORDS]
         caveman_text = " ".join(caveman_words)
         
-        if label == 'negative':
+        # 1-2 stars = Negative (Catches implicit defects like "hair")
+        # 3 stars = Neutral
+        # 4-5 stars = Positive
+        if star_rating <= 2:
             negatives["raw"].append(raw_reviews[i])
             negatives["caveman"].append(caveman_text)
-        elif label == 'positive':
+        elif star_rating >= 4:
             positives["raw"].append(raw_reviews[i])
             positives["caveman"].append(caveman_text)
         else:
@@ -280,11 +285,11 @@ def execute_pipeline(file_path):
             markdown += f"**Cluster {cid + 1} ({len(data['raw'])} reviews)**\n{summary}\n*(Keywords: {top_keywords})*\n\n---\n\n"
         return markdown
 
-    # Domain-Agnostic Prompts
+    # Anti-Hallucination Prompts
     if neg_clusters:
         neg_prompt = (
             "You are a strict business consultant. Analyze these extracted customer complaint keywords to determine the industry/context. "
-            "Do NOT comment on the language. Output exactly two lines:\n"
+            "Do NOT comment on the language. Do NOT attempt to connect contradictory keywords. Output exactly two lines:\n"
             "1. Issue: [1-sentence summary of the core problem]\n"
             "2. Action: [1 short, actionable recommendation to fix it]"
         )
@@ -293,7 +298,7 @@ def execute_pipeline(file_path):
     if neu_clusters:
         neu_prompt = (
             "You are a business operations analyst. Analyze these mixed customer keywords to determine the context. "
-            "Do NOT comment on the language or text format. Output exactly two lines:\n"
+            "Do NOT comment on the language. Do NOT attempt to connect contradictory keywords. Output exactly two lines:\n"
             "1. Observation: [1-sentence summary of customer behavior or neutral feedback]\n"
             "2. Suggestion: [1 short operational tweak to improve the experience]"
         )
@@ -302,7 +307,7 @@ def execute_pipeline(file_path):
     if pos_clusters:
         pos_prompt = (
             "You are a marketing analyst. Analyze these positive customer keywords to determine the context. "
-            "Do NOT comment on the language. Output exactly two lines:\n"
+            "Do NOT comment on the language. Do NOT attempt to connect contradictory keywords. Output exactly two lines:\n"
             "1. Strength: [1-sentence summary of what customers love]\n"
             "2. Highlight: [1-sentence suggestion on how to use this in marketing/advertising]"
         )
@@ -320,26 +325,31 @@ def execute_pipeline(file_path):
     gc.collect()
     return f"Processed {len(raw_reviews)} rows successfully.", pie_chart, insight_markdown, viability_markdown
 
-# --- GRADIO UI ---
-with gr.Blocks(title="Review Analyzer") as demo: 
-    gr.Markdown("# Multilingual(hindi/hinglish/english) Review Analyzer") 
-    gr.Markdown("Upload a `.csv` file. The tool utilizes Caveman Input Pooling, RoBERTa Sentiment Analysis, and dynamic clustering to generate Domain-Agnostic Action Items.")
+# --- GRADIO UI (ALIGNED & STACKED) ---
+with gr.Blocks(title="Review Analyzer", theme=gr.themes.Soft()) as demo: 
+    gr.Markdown("# Universal Dynamic Review Analyzer") 
+    gr.Markdown("Upload a `.csv` file. The tool utilizes Caveman Input Pooling, Star-Rating Sentiment Inference, and dynamic clustering to generate Domain-Agnostic Action Items.")
 
     with gr.Row():
+        file_input = gr.File(label="Upload CSV File", file_types=['.csv'], scale=2)
         with gr.Column(scale=1):
-            file_input = gr.File(label="Upload CSV File", file_types=['.csv'])
-            process_btn = gr.Button("Generate Analysis", variant="primary")
+            process_btn = gr.Button("Generate Analysis", variant="primary", size="lg")
             status_text = gr.Textbox(label="System Status", interactive=False)
             
     gr.Markdown("---")
 
+    # UI FIX: Charts get their own full-width row so they aren't squished
     with gr.Row():
         with gr.Column(scale=1):
-            gr.Markdown("## Sentiment & Topic Distribution")
+            gr.Markdown("## 📊 Sentiment & Topic Distribution")
             visual_output = gr.Plot(label="Review Categorization")
             
+    gr.Markdown("---")
+
+    # UI FIX: Insights get their own full-width row below the charts
+    with gr.Row():
         with gr.Column(scale=1):
-            gr.Markdown("## Analysis Insights:")
+            gr.Markdown("## 🧠 Analysis Insights")
             insights_display = gr.Markdown()
             
     gr.Markdown("---")
@@ -356,4 +366,4 @@ with gr.Blocks(title="Review Analyzer") as demo:
     )
 
 if __name__ == "__main__": 
-    demo.launch(theme=gr.themes.Soft())
+    demo.launch()
