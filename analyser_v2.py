@@ -227,7 +227,7 @@ def execute_pipeline(file_path):
         star_rating = int(sentiment['label'].split()[0])
         
         no_punct = re.sub(r'[^\w\s]', '', full_text.lower())
-        caveman_words = [w for w in no_punct.split() if w not in ENGLISH_STOPWORDS]
+        caveman_words = [w for w in no_punct.split() if w not in ENGLISH_STOPWORDS and w not in SOFT_HINGLISH_STOPWORDS]
         caveman_text = " ".join(caveman_words)
         
         # 1-2 stars = Negative (Catches implicit defects like "hair")
@@ -288,28 +288,25 @@ def execute_pipeline(file_path):
     # Anti-Hallucination Prompts
     if neg_clusters:
         neg_prompt = (
-            "You are a strict business consultant. Analyze these extracted customer complaint keywords to determine the industry/context. "
-            "Do NOT comment on the language. Do NOT attempt to connect contradictory keywords. Output exactly two lines:\n"
-            "1. Issue: [1-sentence summary of the core problem]\n"
-            "2. Action: [1 short, actionable recommendation to fix it]"
+            "Analyze these complaint keywords. Infer the industry. Do NOT comment on language. "
+            "IF keywords are junk/test data (e.g., 'hello', 'test'), output ONLY: 'Issue: Irrelevant data'. "
+            "OTHERWISE, output exactly:\n1. Issue: [1-sentence summary]\n2. Action: [1 short fix]"
         )
         insight_markdown += summarize_cluster(neg_prompt, neg_clusters, "🚨 Critical Issues (Requires Attention)")
 
     if neu_clusters:
         neu_prompt = (
-            "You are a business operations analyst. Analyze these mixed customer keywords to determine the context. "
-            "Do NOT comment on the language. Do NOT attempt to connect contradictory keywords. Output exactly two lines:\n"
-            "1. Observation: [1-sentence summary of customer behavior or neutral feedback]\n"
-            "2. Suggestion: [1 short operational tweak to improve the experience]"
+            "Analyze these mixed keywords. Infer the industry. Do NOT comment on language. "
+            "IF keywords are junk/test data, output ONLY: 'Observation: Irrelevant data'. "
+            "OTHERWISE, output exactly:\n1. Observation: [1-sentence summary]\n2. Suggestion: [1 short tweak]"
         )
         insight_markdown += summarize_cluster(neu_prompt, neu_clusters, "📊 Operational Observations (Factual / Mixed)")
 
     if pos_clusters:
         pos_prompt = (
-            "You are a marketing analyst. Analyze these positive customer keywords to determine the context. "
-            "Do NOT comment on the language. Do NOT attempt to connect contradictory keywords. Output exactly two lines:\n"
-            "1. Strength: [1-sentence summary of what customers love]\n"
-            "2. Highlight: [1-sentence suggestion on how to use this in marketing/advertising]"
+            "Analyze these positive keywords. Infer the industry. Do NOT comment on language. "
+            "IF keywords are junk/test data, output ONLY: 'Strength: Irrelevant data'. "
+            "OTHERWISE, output exactly:\n1. Strength: [1-sentence summary]\n2. Highlight: [1-sentence marketing idea]"
         )
         insight_markdown += summarize_cluster(pos_prompt, pos_clusters, "⭐ Core Strengths (What to keep doing)")
 
@@ -326,8 +323,9 @@ def execute_pipeline(file_path):
     return f"Processed {len(raw_reviews)} rows successfully.", pie_chart, insight_markdown, viability_markdown
 
 dark_minimalist = gr.themes.Soft(
-    primary_hue="teal",       # A sophisticated, muted teal instead of purple
-    neutral_hue="zinc",       # Deep, matte grays for a premium dark mode look
+    text_size=gr.themes.sizes.text_lg,
+    primary_hue="teal",       
+    neutral_hue="zinc",       
     font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "sans-serif"],
 ).set(
     # Force dark background and block colors
@@ -357,7 +355,7 @@ dark_minimalist = gr.themes.Soft(
     button_small_radius="6px",
 )
 
-# --- GRADIO UI (ALIGNED & STACKED) ---
+# --- GRADIO UI ---
 
 # 2. Apply the custom theme to your Blocks
 with gr.Blocks() as demo: 
@@ -372,7 +370,6 @@ with gr.Blocks() as demo:
             
     gr.Markdown("---")
 
-    # UI FIX: Charts get their own full-width row so they aren't squished
     with gr.Row():
         with gr.Column(scale=1):
             gr.Markdown("## Sentiment & Topic Distribution")
@@ -380,7 +377,6 @@ with gr.Blocks() as demo:
             
     gr.Markdown("---")
 
-    # UI FIX: Insights get their own full-width row below the charts
     with gr.Row():
         with gr.Column(scale=1):
             gr.Markdown("## Analysis Insights:")
@@ -392,7 +388,6 @@ with gr.Blocks() as demo:
         with gr.Column(scale=1):
             savings_display = gr.Markdown(label="Metrics:")
 
-    # Note: Ensure 'execute_pipeline' is defined in your actual script
     process_btn.click(
         fn=execute_pipeline, 
         inputs=[file_input], 
@@ -401,5 +396,4 @@ with gr.Blocks() as demo:
     )
 
 if __name__ == "__main__": 
-    # Launching with dark mode prioritized if the browser doesn't force it
     demo.launch(title="Review Analyzer", theme=dark_minimalist)
