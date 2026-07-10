@@ -1,9 +1,12 @@
-gradio
-torch
+gradio>=4.0.0
 pandas
 matplotlib
-scikit-learn
-sentence-transformers
+
+torch
 transformers
+sentence-transformers
+accelerate
+
+vaderSentiment
 umap-learn
 hdbscan
