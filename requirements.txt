@@ -7,6 +7,5 @@ transformers
 sentence-transformers
 accelerate
 
-vaderSentiment
 umap-learn
 hdbscan
