@@ -22,8 +22,8 @@ SOFT_HINGLISH_STOPWORDS = {'hai', 'hain', 'tha', 'thi', 'the', 'ho', 'kar', 'kar
 
 # Hindi to English model (IndicTrans2)
 hindi_trans_model = "ai4bharat/indictrans2-indic-en-dist-200M"
-HTM_tokenizer = AutoTokenizer.from_pretrained(hindi_trans_model, trust_remote_code=True)
-hindi_model = AutoModelForSeq2SeqLM.from_pretrained(hindi_trans_model, trust_remote_code=True)
+HTM_tokenizer = AutoTokenizer.from_pretrained(hindi_trans_model, trust_remote_code=True,token=HF_TOKEN)
+hindi_model = AutoModelForSeq2SeqLM.from_pretrained(hindi_trans_model, trust_remote_code=True,token=HF_TOKEN)
 
 # Hinglish to English (Qwen 3B GGUF)
 qwen_path = hf_hub_download(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename="qwen2.5-3b-instruct-q4_k_m.gguf")
