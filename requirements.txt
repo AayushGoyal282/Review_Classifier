@@ -2,11 +2,9 @@ gradio
 pandas
 matplotlib
 
-transformers==4.38.2
 sentence-transformers
-sentencepiece>=0.1.99
+sentencepiece
 einops
-sacremoses
 
 umap-learn
 hdbscan
