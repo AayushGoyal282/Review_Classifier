@@ -14,17 +14,19 @@ from llama_cpp import Llama
 from sentence_transformers import SentenceTransformer
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, pipeline
 
+torch.set_num_threads(2)
+
 HF_TOKEN = os.getenv("HF_TOKEN")
 client = InferenceClient(api_key=HF_TOKEN)
 
 ENGLISH_STOPWORDS = {'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", 'he', 'him', 'she', 'it', 'they', 'them', 'what', 'which', 'who', 'this', 'that', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'a', 'an', 'the', 'if', 'or', 'as', 'of', 'at', 'by', 'for', 'with', 'about', 'to', 'from', 'in', 'out', 'on', 'off', 'over', 'under', 'then', 'here', 'there', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'only', 'own', 'so', 'than', 'too', 'very', 'can', 'will', 'just', 'should', 'now'}
 SOFT_HINGLISH_STOPWORDS = {'hai', 'hain', 'tha', 'thi', 'the', 'ho', 'kar', 'karta', 'liye', 'diya', 'gaya', 'aap', 'yeh', 'ye', 'woh', 'mai', 'main', 'me', 'ki', 'ke', 'ka', 'ko', 'se', 'aur', 'ya', 'toh', 'to', 'bhi', 'hi', 'kya', 'bas'}
 
-# Hindi to English model (IndicTrans2)
-hindi_trans_model = "ai4bharat/indictrans2-indic-en-dist-200M"
-HTM_tokenizer = AutoTokenizer.from_pretrained(hindi_trans_model, trust_remote_code=True,token=HF_TOKEN)
-hindi_model = AutoModelForSeq2SeqLM.from_pretrained(hindi_trans_model, trust_remote_code=True,token=HF_TOKEN)
+# Hindi to English (Facebook's nllb-200-distilled-600M)
+mdl = AutoModelForSeq2SeqLM.from_pretrained("facebook/nllb-200-distilled-600M",torch_dtype=torch.float32,low_cpu_mem_usage=True,)
 
+tknzr = AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M",src_lang="hin_Deva",tgt_lang="eng_Latn")
+translator = pipeline(task="translation",model=mdl,tokenizer=tknzr)
 # Hinglish to English (Qwen 3B GGUF)
 qwen_path = hf_hub_download(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename="qwen2.5-3b-instruct-q4_k_m.gguf")
 llm_hinglish = Llama(model_path=qwen_path, n_ctx=1024, n_threads=2) # n_threads=2 matches HF Free Tier
@@ -101,9 +103,9 @@ def execute_pipeline(file_path):
         lang = route_language(text)
         
         if lang == 'hindi':
-            inputs = HTM_tokenizer([text], return_tensors="pt")
-            out = hindi_model.generate(**inputs)
-            full_english_texts.append(HTM_tokenizer.batch_decode(out, skip_special_tokens=True)[0])
+            inputs = tknzr([text], return_tensors="pt")
+            out = mdl.generate(**inputs)
+            full_english_texts.append(tknzr.batch_decode(out, skip_special_tokens=True)[0])
         elif lang == 'hinglish':
             prompt = f"<|im_start|>system\nTranslate Hinglish to English.<|im_end|>\n<|im_start|>user\n{text}<|im_end|>\n<|im_start|>assistant\n"
             out = llm_hinglish(prompt, max_tokens=100, stop=["<|im_end|>"])
