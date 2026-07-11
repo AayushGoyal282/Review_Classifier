@@ -1,11 +1,11 @@
-gradio>=4.0.0
+gradio
 pandas
 matplotlib
 
-torch
-transformers
 sentence-transformers
-accelerate
+llama-cpp-python
+sentencepiece
+einops
 
 umap-learn
 hdbscan
