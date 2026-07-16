@@ -1,10 +1,9 @@
 gradio
 pandas
 matplotlib
-
-sentence-transformers
-sentencepiece
-einops
-
 umap-learn
 hdbscan
+nltk
+llama-cpp-python
+sentence-transformers
+transformers
