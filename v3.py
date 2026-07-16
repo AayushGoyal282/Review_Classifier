@@ -38,7 +38,14 @@ except LookupError:
     nltk.download('words', quiet=True)
 from nltk.corpus import words
 
-ENGLISH_STOPWORDS = {'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", 'he', 'him', 'she', 'it', 'they', 'them', 'what', 'which', 'who', 'this', 'that', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'a', 'an', 'the', 'if', 'or', 'as', 'of', 'at', 'by', 'for', 'with', 'about', 'to', 'from', 'in', 'out', 'on', 'off', 'over', 'under', 'then', 'here', 'there', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'only', 'own', 'so', 'than', 'too', 'very', 'can', 'will', 'just', 'should', 'now'}
+ENGLISH_STOPWORDS = {'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", 
+                     'he', 'him', 'she', 'it', 'they', 'them', 'what', 'which', 'who', 'this', 'that', 
+                     'am', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'a', 
+                     'an', 'the', 'if', 'or', 'as', 'of', 'at', 'by', 'for', 'with', 'about', 'to', 'from',
+                     'in', 'out', 'on', 'off', 'over', 'under', 'then', 'here', 'there', 'where', 'why', 'how',
+                     'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'only', 'own',
+                     'so', 'than', 'too', 'very', 'can', 'will', 'just', 'should', 'now'
+                    }
 
 ENGLISH_VOCAB = set(words.words()).union(ENGLISH_STOPWORDS)
 
@@ -56,8 +63,8 @@ mdl = AutoModelForSeq2SeqLM.from_pretrained("facebook/nllb-200-distilled-600M", 
 tknzr = AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M")
 
 # Hinglish to English
-qwen_path = hf_hub_download(repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF", filename="qwen2.5-3b-instruct-q4_k_m.gguf")
-llm_hinglish = Llama(model_path=qwen_path, n_ctx=1024, n_threads=2)
+qwen_path = hf_hub_download(repo_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF", filename="qwen2.5-1.5b-instruct-q4_k_m.gguf")
+llm_hinglish = Llama(model_path=qwen_path, n_ctx=1024, n_threads=2,verbose=False)
 
 # Sentiment & Embeddings
 embedder = SentenceTransformer('all-MiniLM-L6-v2', device=torch_device)
